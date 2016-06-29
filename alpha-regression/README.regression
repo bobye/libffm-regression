@@ -1,0 +1,9 @@
+This is a branch of LIBFFM for regression problems. The differences from the master branch are:
+
+    - the labels are treated as real numbers
+
+    - the loss is RMSE
+
+The usage is identical to the master branch. See README for detail.
+
+This branch is based on v112 of the master branch.
