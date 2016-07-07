@@ -357,7 +357,7 @@ shared_ptr<ffm_model> train(
 
                     ffm_float t = wTx(begin, end, r, *model);
                     
-                    ffm_float e = y - t;
+                    ffm_float e = y - t * 0.5;
 
                     va_loss += e * e;
                 }
@@ -972,7 +972,7 @@ ffm_float ffm_predict(ffm_node *begin, ffm_node *end, ffm_model *model, const ch
     }
     cout << endl;
 
-    return t;
+    return t * 0.5;
 }
 
 ffm_float ffm_cross_validation(
