@@ -35,6 +35,7 @@ inline ffm_float wTx(
     ffm_node *end,
     ffm_float r,
     ffm_model &model, 
+    ffm_float *dropout_vec = NULL,
     ffm_float kappa=0, 
     ffm_float eta=0, 
     ffm_float lambda=0, 
@@ -67,7 +68,8 @@ inline ffm_float wTx(
 
             ffm_float *w1 = model.W + j1*align1 + f2*align0;
             ffm_float *w2 = model.W + j2*align1 + f1*align0;
-
+	    ffm_float *dr = dropout_vec + model.k* (f1*model.m + f2);
+	    
             __m128 XMMv = _mm_set1_ps(v1*v2*r);
 
             if(do_update)
@@ -80,16 +82,25 @@ inline ffm_float wTx(
                 {
                     __m128 XMMw1 = _mm_load_ps(w1+d);
                     __m128 XMMw2 = _mm_load_ps(w2+d);
+		    __m128 XMMw1dr, XMMw2dr;
+		    if (dropout_vec) {
+		    __m128 XMMdr = _mm_load_ps(dr+d);
+		    XMMw1dr = _mm_mul_ps(XMMdr, XMMw1);
+		    XMMw2dr = _mm_mul_ps(XMMdr, XMMw2);
+		    } else {
+		    XMMw1dr = XMMw1;
+		    XMMw2dr = XMMw2;
+		    }
 
                     __m128 XMMwg1 = _mm_load_ps(wg1+d);
                     __m128 XMMwg2 = _mm_load_ps(wg2+d);
 
                     __m128 XMMg1 = _mm_add_ps(
-                                   _mm_mul_ps(XMMlambda, XMMw1),
-                                   _mm_mul_ps(XMMkappav, XMMw2));
+                                   _mm_mul_ps(XMMlambda, XMMw1dr),
+                                   _mm_mul_ps(XMMkappav, XMMw2dr));
                     __m128 XMMg2 = _mm_add_ps(
-                                   _mm_mul_ps(XMMlambda, XMMw2),
-                                   _mm_mul_ps(XMMkappav, XMMw1));
+                                   _mm_mul_ps(XMMlambda, XMMw2dr),
+                                   _mm_mul_ps(XMMkappav, XMMw1dr));
 
                     XMMwg1 = _mm_add_ps(XMMwg1, _mm_mul_ps(XMMg1, XMMg1));
                     XMMwg2 = _mm_add_ps(XMMwg2, _mm_mul_ps(XMMg2, XMMg2));
@@ -111,10 +122,15 @@ inline ffm_float wTx(
                 for(ffm_int d = 0; d < model.k; d += 4)
                 {
                     __m128  XMMw1 = _mm_load_ps(w1+d);
-                    __m128  XMMw2 = _mm_load_ps(w2+d);
-
-                    XMMt = _mm_add_ps(XMMt, 
-                           _mm_mul_ps(_mm_mul_ps(XMMw1, XMMw2), XMMv));
+                    __m128  XMMw2 = _mm_load_ps(w2+d);		    
+		    if (dropout_vec) {
+		      __m128 XMMdr = _mm_load_ps(dr+d);		    
+		      XMMt = _mm_add_ps(XMMt, 
+					_mm_mul_ps(_mm_mul_ps(_mm_mul_ps(XMMw1, XMMw2), XMMdr), XMMv));
+		    } else {
+		      XMMt = _mm_add_ps(XMMt, 
+					_mm_mul_ps(_mm_mul_ps(XMMw1, XMMw2), XMMv));
+		    }
                 }
             }
         }
@@ -286,6 +302,10 @@ shared_ptr<ffm_model> train(
 #if defined USEOMP
 #pragma omp parallel for schedule(static) reduction(+: tr_loss)
 #endif
+	default_random_engine generator;
+	uniform_real_distribution<ffm_float> distribution(0.0, 1.0);
+	vector<ffm_float> dropout_vec(model->m * model->m * model->k);
+
         for(ffm_int ii = 0; ii < tr->l; ii++)
         {
             ffm_int i = order[ii];
@@ -298,7 +318,9 @@ shared_ptr<ffm_model> train(
 
             ffm_float r = R_tr[i];
 
-            ffm_float t = wTx(begin, end, r, *model);
+	    for (ffm_int jj=0; jj < model->m * model->m * model->k; ++jj)
+	      dropout_vec[jj] = (distribution(generator) > 0.5)? 1.0: 0.0;
+            ffm_float t = wTx(begin, end, r, *model, &dropout_vec[0]);
 
             ffm_float e = y - t;
 
@@ -306,7 +328,7 @@ shared_ptr<ffm_model> train(
                
             ffm_float kappa = -e;
 
-            wTx(begin, end, r, *model, kappa, param.eta, param.lambda, true);
+            wTx(begin, end, r, *model, &dropout_vec[0], kappa, param.eta, param.lambda, true);
         }
 
         if(!param.quiet)
@@ -481,7 +503,7 @@ shared_ptr<ffm_model> train_on_disk(
                    
                 ffm_float kappa = -e;
 
-                wTx(begin, end, r, *model, kappa, param.eta, param.lambda, true);
+                wTx(begin, end, r, *model, NULL, kappa, param.eta, param.lambda, true);
             }
         }
 
