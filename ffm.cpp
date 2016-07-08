@@ -303,7 +303,7 @@ shared_ptr<ffm_model> train(
 #pragma omp parallel for schedule(static) reduction(+: tr_loss)
 #endif
 	default_random_engine generator;
-	uniform_real_distribution<ffm_float> distribution(0.0, 1.0);
+	bernoulli_distribution distribution(0.5);
 	vector<ffm_float> dropout_vec(model->m * model->m * model->k);
 
         for(ffm_int ii = 0; ii < tr->l; ii++)
@@ -319,7 +319,7 @@ shared_ptr<ffm_model> train(
             ffm_float r = R_tr[i];
 
 	    for (ffm_int jj=0; jj < model->m * model->m * model->k; ++jj)
-	      dropout_vec[jj] = (distribution(generator) > 0.5)? 1.0: 0.0;
+	      dropout_vec[jj] = distribution(generator);
             ffm_float t = wTx(begin, end, r, *model, &dropout_vec[0]);
 
             ffm_float e = y - t;
